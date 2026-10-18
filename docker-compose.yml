@@ -1,0 +1,20 @@
+services:
+  solides-mcp:
+    build: .
+    env_file: .env
+    environment:
+      # Dentro do container: escuta em todas as interfaces na 8000, sem janela de navegador.
+      SOLIDES_MCP_HOST: 0.0.0.0
+      SOLIDES_MCP_PORT: 8000
+      SOLIDES_HEADLESS: "true"
+    ports:
+      # Só no localhost do servidor; exponha para fora com um reverse proxy com HTTPS.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - artifacts:/app/artifacts
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+
+volumes:
+  artifacts:

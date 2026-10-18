@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--
+  Réplica reduzida da tela de login do Tangerino (capturada em 17/10/2026), com os mesmos
+  names/classes que o LoginPage usa. O <script> imita o comportamento do Wicket: a aba
+  Colaborador troca o formulário e o btnLogin faz um POST AJAX para uma URL com "btnLogin".
+  A resposta (JSON, vinda do teste) diz o que simular: redirect, erro, alert ou captcha.
+-->
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Sólides</title>
+</head>
+<body>
+  <form class="s-form" id="id7" method="post" action="?wicket:interface=:0:body:loginForm::IFormSubmitListener::">
+    <input type="hidden" id="latitude" value="" name="latitude">
+    <input type="hidden" id="longitude" value="" name="longitude">
+    <fieldset>
+      <ul class="login-abas">
+        <li><a class="login-aba ativo" href="#" id="aba-empregador">Empregador</a></li>
+        <li><a class="login-aba" href="#" id="aba-colaborador">Colaborador</a></li>
+        <li><a class="login-aba" href="#">Registrar Ponto</a></li>
+      </ul>
+
+      <div id="campos-empregador">
+        <input type="text" name="login" placeholder="Digite o e-mail">
+        <input type="password" name="password" placeholder="Digite aqui sua senha">
+      </div>
+
+      <div id="campos-colaborador" style="display:none">
+        <input id="idf" type="text" maxlength="5" class="form-control uppercaseInputs" name="codigoEmpregador">
+        <input id="id13" type="password" maxlength="5" class="uppercaseInputs" name="pin">
+        <div id="id14" style="display:none"></div>
+        <div class="disabled-element" id="captcha"><!--CAPTCHA--></div>
+        <input type="submit" value="Acessar como Colaborador" class="btn btn-primary w-full" name="btnLogin" id="id15">
+      </div>
+    </fieldset>
+  </form>
+
+  <script>
+    document.getElementById('aba-colaborador').addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('campos-empregador').style.display = 'none';
+      document.getElementById('campos-colaborador').style.display = '';
+      document.getElementById('aba-empregador').classList.remove('ativo');
+      e.target.classList.add('ativo');
+    });
+
+    document.getElementById('id15').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const form = document.getElementById('id7');
+      const resposta = await fetch('?wicket:interface=:1:body:loginForm:btnLogin::IActivePageBehaviorListener:0:', {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+      });
+      const acao = await resposta.json();
+      if (acao.redirect) {
+        window.location.href = acao.redirect;
+      } else if (acao.erro) {
+        const painel = document.getElementById('id14');
+        painel.innerHTML = '<ul class="feedbackPanel"><li class="feedbackPanelERROR"><span>' + acao.erro + '</span></li></ul>';
+        painel.style.display = '';
+      } else if (acao.alert) {
+        alert(acao.alert);
+        window.location.href = '/Tangerino/pages/HomePage';
+      } else if (acao.captcha) {
+        const div = document.getElementById('captcha');
+        div.classList.remove('disabled-element');
+        div.innerHTML = '<iframe title="reCAPTCHA" style="width:304px;height:78px;border:0"></iframe>';
+      }
+    });
+  </script>
+</body>
+</html>

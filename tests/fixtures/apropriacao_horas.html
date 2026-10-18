@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<!--
+  Réplica reduzida da tela Ponto → Colaborador → Apropriação de horas (mapeada em 17/10/2026).
+  Mantém as classes/names que o ApropriacaoHorasPage usa. O espelho é desenhado por JS a partir de JSON
+  do servidor falso (tests/fake_tangerino.py), imitando as respostas AJAX do Wicket:
+    - Consultar troca as linhas da tabela;
+    - ⋮ → "Lançar ponto em Atraso" abre o .wicket-modal;
+    - "Salvar e Continuar" mantém o modal e limpa a hora; "Salvar e Sair" fecha e redesenha a tabela;
+    - cada lançamento mostra um toast (.toast-top-right .toast.toast-success | .toast-error).
+-->
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Sólides</title>
+  <style>.option-menu { display: none; } .option-menu.aberto { display: block; }</style>
+</head>
+<body>
+  <h1>Apropriação de Horas dos Colaboradores</h1>
+  <form id="filtro">
+    <input type="text" name="containerPorPeriodo:dataInicio" value="__INICIO__">
+    <input type="text" name="containerPorPeriodo:dataFim" value="__FIM__">
+    <input type="button" name="consultar" class="botaoConsultar s-button" value="Consultar">
+  </form>
+  <table class="tt"><tbody id="espelho"></tbody></table>
+
+  <!-- O calendário do Wicket também usa .wicket-modal, escondido -->
+  <div class="wicket-modal" style="display:none"><a class="calnav">calendário</a></div>
+
+  <script>
+    const DIAS_INICIAIS = __DIAS__;
+    const tbody = document.getElementById('espelho');
+    const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+
+    function render(dias) {
+      tbody.innerHTML = '<tr class="bgTituloLista"><th>Ação</th><th>Status</th><th>Entrada Saída</th></tr>';
+      for (const d of dias) {
+        const header = el(`<tr class="folhaponto-header">
+          <td><ul><li><a class="icone icon-menu-triple-line" href="#">⋮</a>
+            <ul class="option-menu"><li><a class="icone folder" href="#">Coleta de Pontos Originais</a></li>
+              <li><a class="icone icon-clock" href="#">Lançar ponto em Atraso</a></li>
+              <li><a class="icone icon-magic-bw" href="#">Preenchimento automático</a></li></ul></li></ul></td>
+          <td><span>${d.data} - ${d.dia_semana}${d.marcador ? ' (' + d.marcador + ')' : ''}</span></td></tr>`);
+        header.querySelector('.icon-menu-triple-line').onclick = (e) => { e.preventDefault(); header.querySelector('.option-menu').classList.toggle('aberto'); };
+        header.querySelector('.icon-clock').onclick = (e) => { e.preventDefault(); abrirModal(d.data); };
+        tbody.appendChild(header);
+        for (let i = 0; i < d.horas.length; i += 2) {
+          const status = d.pendente ? '<span><a><span class="icone ajuda"></span></a></span>' : '<a class="icone aprovado"></a>';
+          tbody.appendChild(el(`<tr><td><label>TRABALHANDO</label></td>
+            <td>${status}<span><a>Editado Manualmente</a></span></td>
+            <td class="folhaponto-listpontos"><input type="text" class="entrada" value="${d.horas[i]}"><input type="text" class="saida" value="${d.horas[i + 1] || ''}"></td></tr>`));
+        }
+        tbody.appendChild(el(`<tr class="folhaponto-resumo"><td></td>
+          <td>Total Previsto: ${d.previsto || ''}</td><td>Saldo do dia: <span>${d.saldo}</span></td></tr>`));
+      }
+    }
+
+    document.querySelector('input[name=consultar]').onclick = async () => {
+      const corpo = new URLSearchParams({
+        inicio: document.querySelector('input[name="containerPorPeriodo:dataInicio"]').value,
+        fim: document.querySelector('input[name="containerPorPeriodo:dataFim"]').value,
+      });
+      const r = await fetch('/Tangerino/pages/apropriacao-horas/consultar', { method: 'POST', body: corpo });
+      render(await r.json());
+    };
+
+    function toast(tipo, msg) {
+      let c = document.querySelector('.toast-top-right');
+      if (!c) { c = el('<div id="toast-container" class="toast-top-right"></div>'); document.body.appendChild(c); }
+      const t = el(`<div class="toast toast-${tipo}"><button>×</button><div class="toast-message">${msg}</div></div>`);
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+
+    function abrirModal(data) {
+      const m = el(`<div class="wicket-modal"><form>
+        <h3>Registro Ponto em Atraso</h3>
+        <select name="justificativa" class="js-basic-select-field dropdown-justificativa">
+          <option>Escolha</option><option>Esquecimento</option><option>Sistema Indisponível</option></select>
+        <input type="text" name="dataPonto" value="${data}">
+        <input type="text" name="horaPonto" placeholder="hh:mm">
+        <textarea name="observacao" maxlength="200"></textarea>
+        <input type="button" name="saveOnly" class="botaoConsultar s-button" value="Salvar e Sair">
+        <input type="button" name="saveAndContinue" class="botaoConsultar s-button" value="Salvar e Continuar">
+      </form></div>`);
+      document.body.appendChild(m);
+      const salvar = async (sair) => {
+        const f = m.querySelector('form');
+        const corpo = new URLSearchParams({
+          data: f.dataPonto.value, hora: f.horaPonto.value, justificativa: f.justificativa.value, observacao: f.observacao.value,
+        });
+        const r = await (await fetch('/Tangerino/pages/apropriacao-horas/lancar', { method: 'POST', body: corpo })).json();
+        if (r.erro) { toast('error', r.erro); return; }
+        toast('success', 'Lançamento Registrado com sucesso!');
+        f.horaPonto.value = '';
+        if (sair) { m.remove(); document.querySelector('input[name=consultar]').click(); }
+      };
+      m.querySelector('[name=saveAndContinue]').onclick = () => salvar(false);
+      m.querySelector('[name=saveOnly]').onclick = () => salvar(true);
+    }
+
+    render(DIAS_INICIAIS);
+  </script>
+</body>
+</html>
