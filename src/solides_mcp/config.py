@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     # Servidor MCP (Streamable HTTP). O token só é obrigatório para o servidor, não para a CLI.
     mcp_token: Annotated[SecretStr, Field(min_length=24)] | None = None
+    mcp_public_url: str = "http://localhost:8000"
     mcp_host: str = "127.0.0.1"
     mcp_port: int = 8000
     mcp_allowed_hosts: Annotated[list[str], NoDecode] = []

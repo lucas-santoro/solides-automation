@@ -9,12 +9,13 @@ from zoneinfo import ZoneInfo
 import uvicorn
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
+from starlette.routing import Route
 from starlette.types import ASGIApp
 
-from solides_mcp.auth import BearerAuthMiddleware
 from solides_mcp.browser import BrowserManager
 from solides_mcp.config import Settings, carregar, sair_por_configuracao
 from solides_mcp.errors import LancamentoError, SolidesError
@@ -26,6 +27,7 @@ from solides_mcp.models import (
     ResultadoPonto,
     validar_horas,
 )
+from solides_mcp.oauth import SCOPES, SolidesOAuthProvider
 from solides_mcp.pages.apropriacao_horas_page import ApropriacaoHorasPage
 from solides_mcp.pages.login_page import LoginPage
 from solides_mcp.ponto import registrar_ponto
@@ -77,7 +79,7 @@ def _validar_periodo(inicio: date, fim: date) -> None:
         raise ToolError("data_inicio não pode ser depois de data_fim.")
 
 
-def create_server(settings: Settings) -> MCPServer[BrowserManager]:
+def create_server(settings: Settings, oauth_provider: SolidesOAuthProvider | None = None) -> MCPServer[BrowserManager]:
     @asynccontextmanager
     async def lifespan(_: MCPServer[BrowserManager]) -> AsyncIterator[BrowserManager]:
         async with BrowserManager(settings) as browser:
@@ -157,7 +159,26 @@ def create_server(settings: Settings) -> MCPServer[BrowserManager]:
             resultado.screenshot = str(exc.screenshot) if exc.screenshot else None
         return resultado
 
-    mcp = MCPServer("solides-ponto", instructions=INSTRUCOES, lifespan=lifespan)
+    auth_kwargs: dict[str, Any] = {}
+    if oauth_provider:
+        auth_kwargs = {
+            "auth_server_provider": oauth_provider,
+            "auth": AuthSettings(
+                issuer_url=oauth_provider.issuer,
+                resource_server_url=oauth_provider.resource,
+                validate_token_resource=True,
+                required_scopes=SCOPES,
+                client_registration_options=ClientRegistrationOptions(
+                    enabled=True, valid_scopes=SCOPES, default_scopes=SCOPES,
+                ),
+            ),
+        }
+    mcp = MCPServer("solides-ponto", instructions=INSTRUCOES, lifespan=lifespan, **auth_kwargs)
+
+    if oauth_provider:
+        @mcp.custom_route("/oauth/login", methods=["GET", "POST"])
+        async def oauth_login(request):
+            return await oauth_provider.login(request)
 
     @mcp.tool(annotations=_REGISTRA)
     async def bater_ponto(ctx: Context[BrowserManager, Any], dry_run: bool = False) -> ResultadoPonto:
@@ -265,8 +286,17 @@ def create_app(settings: Settings) -> ASGIApp:
         seguranca = TransportSecuritySettings(
             enable_dns_rebinding_protection=True, allowed_hosts=settings.mcp_allowed_hosts
         )
-    app = create_server(settings).streamable_http_app(host=settings.mcp_host, transport_security=seguranca)
-    return BearerAuthMiddleware(app, settings.mcp_token.get_secret_value())
+    issuer = settings.mcp_public_url.rstrip("/")
+    provider = SolidesOAuthProvider(
+        issuer, issuer + "/", settings.mcp_token.get_secret_value(),
+        settings.artifacts_dir / "oauth.sqlite3",
+    )
+    app = create_server(settings, provider).streamable_http_app(host=settings.mcp_host, transport_security=seguranca)
+    # O ChatGPT pode usar a origem OAuth como URL do servidor na descoberta de tools.
+    # Compartilhe o mesmo transporte e a mesma sessão com /mcp.
+    mcp_route = next(route for route in app.routes if getattr(route, "path", None) == "/mcp")
+    app.routes.append(Route("/", endpoint=mcp_route.endpoint))
+    return app
 
 
 def main() -> None:

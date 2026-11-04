@@ -14,7 +14,7 @@ Automação do ponto no Sólides/Tangerino pelo navegador (Playwright), exposta 
 ```bash
 uv sync
 uv run playwright install chromium
-cp .env.example .env        # preencha SOLIDES_CODIGO_EMPREGADOR, SOLIDES_PIN e SOLIDES_MCP_TOKEN
+cp .env.example .env        # preencha as credenciais e a senha de autorização OAuth
 uv run solides-mcp          # http://127.0.0.1:8000/mcp
 ```
 
@@ -44,7 +44,7 @@ uv run pytest
 Roteiro completo de deploy (exposição com domínio, Tailscale ou túnel SSH, verificação): `DEPLOY.md`.
 
 ```bash
-cp .env.example .env        # preencha as credenciais e o token
+cp .env.example .env        # preencha as credenciais, senha OAuth e SOLIDES_MCP_PUBLIC_URL
 docker compose up -d --build
 ```
 
@@ -52,14 +52,20 @@ O container publica a porta só em `127.0.0.1:8000`. Para acessar de fora, coloq
 com HTTPS (Caddy, nginx) na frente e defina `SOLIDES_MCP_ALLOWED_HOSTS` com o domínio.
 Os screenshots de erro ficam no volume `artifacts` e podem conter dados pessoais.
 
-## Conectar no Claude Code
+## Conectar no ChatGPT
 
-```bash
-claude mcp add --transport http solides https://ponto.seudominio.com/mcp \
-  --header "Authorization: Bearer <SOLIDES_MCP_TOKEN>"
-```
+No ChatGPT pela web: **Plugins → + → Add custom MCP server**. Informe
+`https://ponto.seudominio.com/mcp`, escolha **OAuth** e crie o plugin. Instale-o e
+selecione-o com `@` em um chat Work. A primeira conexão abre a página de autorização
+do servidor; nela, digite o valor de `SOLIDES_MCP_TOKEN` do `.env`.
 
-Sem o header, o servidor responde 401.
+O servidor publica metadados OAuth, aceita registro dinâmico apenas para callbacks do
+ChatGPT e usa Authorization Code com PKCE. Os tokens de acesso expiram em uma hora; os
+de renovação duram 30 dias e são rotacionados. Clientes sem token válido recebem 401.
+O identificador OAuth do recurso é a origem pública com barra final (ex.: `https://ponto.seudominio.com/`);
+o endpoint MCP continua em `/mcp`.
+Para conexões que usam a origem como URL do servidor, `/` aceita o mesmo transporte MCP.
+O banco OAuth fica no volume `artifacts` com permissão 600.
 
 ## Tools
 

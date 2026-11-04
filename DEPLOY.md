@@ -1,7 +1,7 @@
 # Deploy no servidor (roteiro para agente)
 
 Objetivo: o servidor MCP `solides-mcp` rodando num container Docker no servidor do usuário, acessível ao
-Claude Code dele por uma URL `…/mcp` protegida por token. O que o projeto faz está no `README.md`; as
+ChatGPT por uma URL HTTPS `…/mcp` protegida por OAuth. O que o projeto faz está no `README.md`; as
 variáveis de configuração estão no `.env.example`.
 
 ## Guardrails
@@ -34,10 +34,11 @@ variáveis de configuração estão no `.env.example`.
 4. **Criar o `.env`** a partir do `.env.example`, com `chmod 600`.
    - `SOLIDES_CODIGO_EMPREGADOR` e `SOLIDES_PIN`: o usuário digita no arquivo (abra-o para ele ou peça que
      edite); são as credenciais da aba "Colaborador" do login.
-   - `SOLIDES_MCP_TOKEN`: gere e grave direto no arquivo, sem imprimir:
+   - `SOLIDES_MCP_TOKEN`: senha da página de autorização OAuth; gere e grave direto no arquivo, sem imprimir:
      ``sed -i "s|^SOLIDES_MCP_TOKEN=.*|SOLIDES_MCP_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')|" .env``
    - `SOLIDES_MCP_ALLOWED_HOSTS`: conforme a opção de exposição; sempre inclua `127.0.0.1:*` (ver
      [Por que `127.0.0.1:*`](#por-que-127001-nos-hosts-permitidos)).
+   - `SOLIDES_MCP_PUBLIC_URL`: origem HTTPS pública, sem `/mcp` (ex.: `https://ponto.seudominio.com`).
 
    *Pronto quando* as três variáveis obrigatórias têm valor, conferido sem mostrar os valores:
    `grep -cE '^SOLIDES_(CODIGO_EMPREGADOR|PIN|MCP_TOKEN)=.+' .env` imprime `3`.
@@ -63,13 +64,11 @@ variáveis de configuração estão no `.env.example`.
 
 8. **Verificar de fora** pela URL final da opção escolhida.
    *Pronto quando* `curl -s -o /dev/null -w '%{http_code}' -X POST <URL>/mcp` (sem token) devolve `401`
-   e o usuário confirma que registrou o servidor no Claude Code e ele aparece conectado em `/mcp`:
-   ```bash
-   claude mcp add --transport http solides <URL>/mcp --header "Authorization: Bearer <SOLIDES_MCP_TOKEN>"
-   ```
+   e `GET <URL>/.well-known/oauth-authorization-server` devolve os metadados OAuth.
+   O usuário registra `<URL>/mcp` em **ChatGPT Plugins → + → Add custom MCP server**,
+   escolhe OAuth e autoriza na página de login com a senha do `.env`.
 
-9. **Relatar ao usuário**: a URL do MCP, o comando acima (com o token como placeholder; ele está no
-   `.env` do servidor), onde ficou o repositório e o `.env`, e os comandos de [Operação](#operação).
+9. **Relatar ao usuário**: a URL do MCP, onde ficou o repositório e o `.env`, e os comandos de [Operação](#operação).
 
 ## Exposição
 
@@ -107,5 +106,5 @@ na lista ela falha com `MCPError: Server returned an error response`.
 - Logs: `docker compose logs -f`.
 - Screenshots de erro ficam no volume `artifacts` (contêm dados pessoais):
   `docker compose cp solides-mcp:/app/artifacts ./artifacts`.
-- Trocar o PIN ou o token: editar o `.env` e `docker compose up -d` (o token novo precisa ir também para
-  o `claude mcp add` do usuário).
+- Trocar o PIN ou a senha OAuth: editar o `.env` e `docker compose up -d`. A troca da senha não revoga
+  tokens OAuth já emitidos; para revogá-los, remova o banco `oauth.sqlite3` do volume com o container parado.
