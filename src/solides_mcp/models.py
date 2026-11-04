@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -52,6 +52,19 @@ class ResultadoLancamento(BaseModel):
     confirmado_na_tabela: bool | None = None
     """Se os lançamentos já aparecem no espelho (o site pode demorar alguns segundos)."""
     marcacoes_finais: list[str] | None = None
+    screenshot: str | None = None
+
+
+class ResultadoPonto(BaseModel):
+    ok: bool
+    dry_run: bool
+    mensagem: str
+    """Com ok=true, a mensagem de confirmação do próprio Sólides."""
+    enviado: bool = False
+    """Se o pedido de registro chegou a sair para o Sólides. Com ok=false e enviado=true, confira as
+    marcações do dia antes de tentar de novo: o ponto pode ter sido registrado."""
+    enviado_em: datetime | None = None
+    """Hora local do envio; a hora registrada é a do relógio do Sólides."""
     screenshot: str | None = None
 
 

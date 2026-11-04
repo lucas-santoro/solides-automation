@@ -8,9 +8,10 @@ variáveis de configuração estão no `.env.example`.
 
 - **Segredos**: `SOLIDES_PIN` e `SOLIDES_MCP_TOKEN` vivem só no `.env` (permissão 600). Nas mensagens, nos
   logs e nos comandos que você mostra, refira-se a eles pelo nome da variável.
-- **Verificação só em leitura**: `verificar_login`, `listar_marcacoes`, `dias_pendentes`, e `completar_dia` /
-  `lancar_pontos` apenas com `dry_run=true`. Com `dry_run=false` a tool cria lançamentos de ponto reais, que
-  vão para aprovação do gestor; essa decisão é só do usuário.
+- **Verificação só em leitura**: `verificar_login`, `listar_marcacoes`, `dias_pendentes`, e `bater_ponto` /
+  `completar_dia` / `lancar_pontos` apenas com `dry_run=true`. Com `dry_run=false` a tool cria marcações de
+  ponto reais; essa decisão é só do usuário. Atenção: `bater_ponto` registra o ponto **na hora** e o padrão
+  dele é `dry_run=false`, então passe `{"dry_run": true}` sempre.
 - **Uma tentativa de login por verificação.** Se `verificar_login` voltar `ok: false` (credencial errada,
   `CaptchaRequired`), pare e mostre a `mensagem` ao usuário. Repetir login que falha pode ativar o
   reCAPTCHA da conta.
@@ -54,9 +55,11 @@ variáveis de configuração estão no `.env.example`.
    docker compose exec solides-mcp python scripts/mcp_cliente.py verificar_login
    docker compose exec solides-mcp python scripts/mcp_cliente.py dias_pendentes \
      '{"data_inicio": "<primeiro dia do mês, AAAA-MM-DD>", "data_fim": "<hoje, AAAA-MM-DD>"}'
+   docker compose exec solides-mcp python scripts/mcp_cliente.py bater_ponto '{"dry_run": true}'
    ```
-   *Pronto quando* a lista tem as 5 tools (`verificar_login`, `listar_marcacoes`, `dias_pendentes`,
-   `completar_dia`, `lancar_pontos`), `verificar_login` devolve `"ok": true` e `dias_pendentes` devolve JSON.
+   *Pronto quando* a lista tem as 6 tools (`bater_ponto`, `verificar_login`, `listar_marcacoes`,
+   `dias_pendentes`, `completar_dia`, `lancar_pontos`), `verificar_login` devolve `"ok": true`,
+   `dias_pendentes` devolve JSON e `bater_ponto` com `dry_run` devolve `"ok": true, "dry_run": true`.
 
 8. **Verificar de fora** pela URL final da opção escolhida.
    *Pronto quando* `curl -s -o /dev/null -w '%{http_code}' -X POST <URL>/mcp` (sem token) devolve `401`

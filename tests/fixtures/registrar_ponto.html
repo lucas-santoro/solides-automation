@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<!--
+  Réplica reduzida da aba "Registrar Ponto" da tela de login (capturada em 03/11/2026), com os mesmos
+  ids/classes que o RegistrarPontoPage usa. O <script> imita o web/js/service/register.js do site:
+    1. GET  ws/fingerprintWS/funcionario/empregador/<código>/pin/<pin> (duas vezes, como o original);
+       sem colaborador ou exigindo CPF mostra #formValidacaoSegundaEtapa; conta unificada mostra o aviso;
+    2. exigindo foto (com câmera) abre .modal-captura-foto;
+    3. POST ws/autorizaDipositivoWS/verifica/... decide entre toast, modal de autorização ou seguir;
+    4. POST ws/pontoWS/ponto/sincronizacaoPontos/1.2 e mostra o resultado num toast.
+  As respostas vêm do servidor falso (tests/fake_tangerino.py).
+-->
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title class="s-text">Bater Ponto</title>
+</head>
+<body>
+  <form class="s-form">
+    <fieldset>
+      <ul class="login-abas">
+        <li><a class="login-aba" href="?wicket:interface=:1:body:abaLogin:loginAdministrador::ILinkListener::">Empregador</a></li>
+        <li><a class="login-aba" href="?wicket:interface=:1:body:abaLogin:loginFuncionario::ILinkListener::">Colaborador</a></li>
+        <li><a href="#" class="login-aba ativo">Registrar Ponto</a></li>
+      </ul>
+
+      <div id="formCodigoEmpregadorPin" style="display: inline;">
+        <input id="codigoEmpregador" type="text" maxlength="5" class="form-control uppercaseInputs" autocomplete="off">
+        <input id="codigoPin" type="password" maxlength="5" class="form-control uppercaseInputs" autocomplete="off">
+        <div id="loginUnificadoMessage" class="login-unificado-alert" style="display: none;">
+          <p>Novo local de acesso! O registro de ponto agora é feito exclusivamente em https://app.solides.com.br/</p>
+        </div>
+        <button id="registraPonto" class="btn btn-primary w-full ladda-button" type="button">Registrar</button>
+      </div>
+
+      <div id="formValidacaoSegundaEtapa" style="display: none">
+        <input type="text" id="cpf" class="cpf" placeholder="Informe o seu CPF">
+        <button class="btnContinuar" type="button">Continuar</button>
+      </div>
+    </fieldset>
+  </form>
+
+  <div class="modal fade modal-captura-foto" style="display: none">
+    <h4 class="modal-title">Confirmação de Registro de Ponto</h4>
+    <button type="button" id="btn-modal-confirm">Registra Ponto</button>
+  </div>
+
+  <div class="modal fade modal-solicata-autorizacao" style="display: none">
+    <h4 class="modal-title">Autorização de Dispositivo</h4>
+    <input id="device-name" type="text">
+    <button type="button" id="btn-request-authorization">Solicitar Autorização</button>
+  </div>
+
+  <script>
+    const $ = (seletor) => document.querySelector(seletor);
+    const mostrar = (seletor) => { $(seletor).style.display = 'block'; };
+
+    function toast(tipo, mensagem, titulo) {
+      let c = $('#toast-container');
+      if (!c) {
+        c = document.createElement('div');
+        c.id = 'toast-container';
+        c.className = 'toast-top-right';
+        document.body.appendChild(c);
+      }
+      const t = document.createElement('div');
+      t.className = 'toast toast-' + tipo;
+      t.innerHTML = '<button class="toast-close-button">×</button>'
+        + (titulo ? '<div class="toast-title">' + titulo + '</div>' : '')
+        + '<div class="toast-message">' + (mensagem || '') + '</div>';
+      c.appendChild(t);
+    }
+
+    let funcionario = null;
+    const cod = () => $('#codigoEmpregador').value.toUpperCase();
+    const pin = () => $('#codigoPin').value;
+    const caminho = () => 'empregador/' + cod() + '/pin/' + pin();
+
+    async function buscarFuncionario() {
+      const resposta = await fetch('/Tangerino/ws/fingerprintWS/funcionario/' + caminho());
+      return (await resposta.json()).funcionario;
+    }
+
+    $('#registraPonto').addEventListener('click', async () => {
+      if (cod().length !== 5) { toast('warning', '', 'O Código de Empregador informado não é válido!'); return; }
+      if (!pin()) { toast('warning', '', 'Preencha seu PIN antes de prosseguir!'); return; }
+
+      funcionario = await buscarFuncionario();
+      if (funcionario && funcionario.loginUnificado) { mostrar('#loginUnificadoMessage'); return; }
+      if (!funcionario || (funcionario.exigeCpfRegistroPonto && funcionario.possuiCpf)) {
+        mostrar('#formValidacaoSegundaEtapa');
+        $('#formCodigoEmpregadorPin').style.display = 'none';
+        return;
+      }
+
+      funcionario = await buscarFuncionario();
+      const resposta = await fetch('/Tangerino/ws/autorizaDipositivoWS/verifica/web/' + caminho(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: null }),
+      });
+      const dispositivo = await resposta.json();
+      if (dispositivo.status === 'ERROR') { toast('error', dispositivo.msg); return; }
+      if (!dispositivo.allowAll && dispositivo.areadyRequest) {
+        toast('warning', 'Já existe uma solicitação em aberto para este navegador! Verifique com seu empregador.');
+        return;
+      }
+      if (dispositivo.denyAll) {
+        toast('error', 'Colaborador não autorizado a bater ponto via web. Favor entrar em contato com seu gestor.');
+        return;
+      }
+      if (!dispositivo.allowAll) { mostrar('.modal-solicata-autorizacao'); return; }
+      if (funcionario.exigeFotoWeb) { mostrar('.modal-captura-foto'); return; }
+      registraPonto(false);
+    });
+
+    async function registraPonto(validFingerprint) {
+      try {
+        const resposta = await fetch('/Tangerino/ws/pontoWS/ponto/sincronizacaoPontos/1.2', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'EMPREGADOR': cod(), 'pin': pin() },
+          body: JSON.stringify({
+            horaInicio: '', codigoEmpregador: cod(), pin: pin(), tipo: 'WEB', funcionarioId: funcionario.id,
+            validFingerprint, idAtividade: 6,
+          }),
+        });
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        const data = await resposta.json();
+        if (data.sucesso) {
+          toast('success', '', data.friendlyMessage || data.mensagemDetalhada || data.mensagem);
+        } else {
+          toast('warning', data.detalhes, data.mensagem);
+        }
+      } catch (erro) {
+        toast('error', 'Erro ao registrar o ponto: ' + erro, 'Falha na Requisição');
+        fetch('/Tangerino/ws/logTangerinoWS', { method: 'POST', body: JSON.stringify({ message: String(erro) }) });
+      }
+      $('#codigoPin').value = '';
+    }
+  </script>
+</body>
+</html>

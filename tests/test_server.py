@@ -6,13 +6,7 @@ from fake_tangerino import FakeTangerino
 from mcp import Client
 
 from solides_mcp.config import Settings
-from solides_mcp.server import create_server
-
-
-@pytest.fixture
-def settings_fake(settings: Settings, fake: FakeTangerino) -> Settings:
-    settings.base_url = fake.base_url
-    return settings
+from solides_mcp.server import create_app, create_server
 
 
 async def _chamar(settings: Settings, tool: str, argumentos: dict[str, Any]) -> dict[str, Any]:
@@ -27,13 +21,40 @@ async def test_tools_expostas(settings: Settings) -> None:
     async with Client(create_server(settings)) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    assert set(tools) == {"verificar_login", "listar_marcacoes", "dias_pendentes", "completar_dia", "lancar_pontos"}
+    assert set(tools) == {
+        "bater_ponto",
+        "verificar_login",
+        "listar_marcacoes",
+        "dias_pendentes",
+        "completar_dia",
+        "lancar_pontos",
+    }
     assert tools["verificar_login"].input_schema.get("properties", {}) == {}
     assert tools["listar_marcacoes"].annotations.read_only_hint is True
     assert tools["completar_dia"].annotations.read_only_hint is False
     completar = tools["completar_dia"].input_schema
     assert set(completar["required"]) == {"data", "entrada", "saida"}
     assert completar["properties"]["dry_run"]["default"] is True
+    # Bater ponto registra na hora: não tem plano para revisar e duas chamadas criam duas marcações.
+    bater = tools["bater_ponto"]
+    assert bater.annotations.read_only_hint is False and bater.annotations.idempotent_hint is False
+    assert set(bater.input_schema["properties"]) == {"dry_run"}
+    assert bater.input_schema["properties"]["dry_run"]["default"] is False
+
+
+async def test_bater_ponto_pela_tool(settings_fake: Settings, fake: FakeTangerino) -> None:
+    resultado = await _chamar(settings_fake, "bater_ponto", {})
+
+    assert resultado["ok"] is True, resultado["mensagem"]
+    assert resultado["mensagem"] == "Ponto registrado com sucesso às 09:00!"
+    assert len(fake.estado.registros) == 1
+
+
+def test_servidor_exige_token(settings: Settings) -> None:
+    settings.mcp_token = None
+
+    with pytest.raises(ValueError, match="SOLIDES_MCP_TOKEN"):
+        create_app(settings)
 
 
 async def test_falha_de_rede_volta_ok_false_com_screenshot(settings: Settings) -> None:

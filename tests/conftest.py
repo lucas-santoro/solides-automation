@@ -48,6 +48,12 @@ def settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
+def settings_fake(settings: Settings, fake: FakeTangerino) -> Settings:
+    settings.base_url = fake.base_url
+    return settings
+
+
+@pytest.fixture
 async def browser(settings: Settings) -> AsyncIterator[BrowserManager]:
     async with BrowserManager(settings) as manager:
         yield manager

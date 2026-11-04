@@ -1,4 +1,4 @@
-"""Tangerino falso (Starlette) para testar login + Apropriação de horas de ponta a ponta, sem rede."""
+"""Tangerino falso (Starlette) para testar login, Apropriação de horas e Registrar Ponto de ponta a ponta, sem rede."""
 
 import json
 import socket
@@ -17,6 +17,9 @@ from starlette.routing import Route
 FIXTURES = Path(__file__).parent / "fixtures"
 LOGIN_HTML = (FIXTURES / "login_colaborador.html").read_text(encoding="utf-8")
 APROPRIACAO_HTML = (FIXTURES / "apropriacao_horas.html").read_text(encoding="utf-8")
+REGISTRAR_PONTO_HTML = (FIXTURES / "registrar_ponto.html").read_text(encoding="utf-8")
+CODIGO, PIN = "ABC12", "12345"
+"""Credenciais que o falso reconhece (as mesmas do `settings` do conftest)."""
 HOME_HTML = "<html><head><title>Início</title></head><body><h1>Bem-vindo</h1></body></html>"
 DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
@@ -46,6 +49,27 @@ class EstadoFake:
     consultas_atrasadas: int = 0
     """Quantas consultas depois de um lançamento ainda mostram o estado antigo."""
     _congelado: dict[date, list[str]] | None = None
+
+    # Aba "Registrar Ponto"
+    funcionario: dict = field(
+        default_factory=lambda: {
+            "id": 4242,
+            "loginUnificado": False,
+            "exigeCpfRegistroPonto": False,
+            "possuiCpf": True,
+            "exigeLocalizacaoWeb": False,
+            "exigeFotoWeb": False,
+            "exigeFingerPrint": False,
+        }
+    )
+    dispositivo: dict = field(default_factory=lambda: {"allowAll": True})
+    """Resposta de autorizaDipositivoWS/verifica."""
+    resposta_registro: dict = field(
+        default_factory=lambda: {"sucesso": True, "friendlyMessage": "Ponto registrado com sucesso às 09:00!"}
+    )
+    status_registro: int = 200
+    registros: list[dict] = field(default_factory=list)
+    """Corpo (JSON) de cada POST em sincronizacaoPontos, inclusive os que o falso recusou."""
 
 
 def _dia_json(data: date, dia: DiaFake, horas: list[str]) -> dict:
@@ -83,7 +107,27 @@ class FakeTangerino:
     async def raiz(self, request: Request) -> Response:
         if request.method == "POST":  # AJAX do btnLogin
             return JSONResponse({"redirect": "/Tangerino/pages/HomeFuncionario"})
+        if "baterPonto" in request.url.query:  # aba "Registrar Ponto"
+            return HTMLResponse(REGISTRAR_PONTO_HTML)
         return HTMLResponse(LOGIN_HTML)
+
+    def _credenciais_ok(self, request: Request) -> bool:
+        return (request.path_params["codigo"], request.path_params["pin"]) == (CODIGO, PIN)
+
+    async def funcionario(self, request: Request) -> Response:
+        return JSONResponse({"funcionario": self.estado.funcionario if self._credenciais_ok(request) else None})
+
+    async def verificar_dispositivo(self, request: Request) -> Response:
+        return JSONResponse(self.estado.dispositivo)
+
+    async def registrar_ponto(self, request: Request) -> Response:
+        self.estado.registros.append(await request.json())
+        if self.estado.status_registro != 200:
+            return Response("erro interno", status_code=self.estado.status_registro)
+        return JSONResponse(self.estado.resposta_registro)
+
+    async def log(self, request: Request) -> Response:
+        return JSONResponse({})
 
     async def home(self, request: Request) -> Response:
         return HTMLResponse(HOME_HTML)
@@ -136,6 +180,14 @@ class FakeTangerino:
                 Route("/Tangerino/pages/apropriacao-horas", self.apropriacao),
                 Route("/Tangerino/pages/apropriacao-horas/consultar", self.consultar, methods=["POST"]),
                 Route("/Tangerino/pages/apropriacao-horas/lancar", self.lancar, methods=["POST"]),
+                Route("/Tangerino/ws/fingerprintWS/funcionario/empregador/{codigo}/pin/{pin}", self.funcionario),
+                Route(
+                    "/Tangerino/ws/autorizaDipositivoWS/verifica/web/empregador/{codigo}/pin/{pin}",
+                    self.verificar_dispositivo,
+                    methods=["POST"],
+                ),
+                Route("/Tangerino/ws/pontoWS/ponto/sincronizacaoPontos/1.2", self.registrar_ponto, methods=["POST"]),
+                Route("/Tangerino/ws/logTangerinoWS", self.log, methods=["POST"]),
             ]
         )
 

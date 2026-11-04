@@ -1,5 +1,4 @@
 import logging
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -12,16 +11,24 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from starlette.types import ASGIApp
 
 from solides_mcp.auth import BearerAuthMiddleware
 from solides_mcp.browser import BrowserManager
-from solides_mcp.config import Settings
+from solides_mcp.config import Settings, carregar, sair_por_configuracao
 from solides_mcp.errors import LancamentoError, SolidesError
-from solides_mcp.models import Espelho, DiaPendente, Pendencias, ResultadoLancamento, validar_horas
+from solides_mcp.models import (
+    DiaPendente,
+    Espelho,
+    Pendencias,
+    ResultadoLancamento,
+    ResultadoPonto,
+    validar_horas,
+)
 from solides_mcp.pages.apropriacao_horas_page import ApropriacaoHorasPage
 from solides_mcp.pages.login_page import LoginPage
+from solides_mcp.ponto import registrar_ponto
 from solides_mcp.regras import FIM_ALMOCO, INICIO_ALMOCO, motivos_pendencia, planejar
 
 logger = logging.getLogger(__name__)
@@ -29,16 +36,21 @@ logger = logging.getLogger(__name__)
 FUSO = ZoneInfo("America/Sao_Paulo")
 
 INSTRUCOES = """\
-Automação do ponto no Sólides/Tangerino (perfil Colaborador), pela tela Ponto → Colaborador → Apropriação de horas.
+Automação do ponto no Sólides/Tangerino (perfil Colaborador).
+- `bater_ponto` registra o ponto AGORA, no relógio do Sólides (aba "Registrar Ponto" da tela de login).
+  Cada chamada cria uma marcação: chame só quando o usuário pedir para bater o ponto, uma vez por pedido.
+  Se voltar ok=false com enviado=true, o ponto pode ter sido registrado: confira com listar_marcacoes
+  do dia antes de chamar de novo.
 - `dias_pendentes` acha dias com FALTA, marcações ímpares ou menos de 4 marcações.
 - `completar_dia` lança as 4 marcações do dia (entrada, 12:00, 13:00, saída) que faltarem, como "ponto em atraso".
 - `lancar_pontos` lança horários avulsos.
-As tools que gravam usam dry_run=True por padrão: mostre o plano ao usuário e só chame com dry_run=false
-depois que ele confirmar os horários. Cada lançamento vai para aprovação do gestor.
+`completar_dia` e `lancar_pontos` usam dry_run=True por padrão: mostre o plano ao usuário e só chame com
+dry_run=false depois que ele confirmar os horários. Cada lançamento em atraso vai para aprovação do gestor.
 """
 
 Justificativa = Literal["Esquecimento", "Sistema Indisponível"]
 _GRAVA = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+_REGISTRA = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 _LE = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 
 
@@ -147,6 +159,16 @@ def create_server(settings: Settings) -> MCPServer[BrowserManager]:
 
     mcp = MCPServer("solides-ponto", instructions=INSTRUCOES, lifespan=lifespan)
 
+    @mcp.tool(annotations=_REGISTRA)
+    async def bater_ponto(ctx: Context[BrowserManager, Any], dry_run: bool = False) -> ResultadoPonto:
+        """Bate o ponto AGORA pela aba "Registrar Ponto" da tela de login; a hora é a do relógio do Sólides.
+
+        Cada chamada cria uma marcação: chame só quando o usuário pedir para bater o ponto. Se voltar
+        ok=false com enviado=true, confira as marcações do dia antes de tentar de novo. Com dry_run=true
+        faz todo o fluxo (confere código, PIN e dispositivo), mas bloqueia o envio: nada é registrado.
+        """
+        return await registrar_ponto(ctx.request_context.lifespan_context, settings, dry_run)
+
     @mcp.tool(annotations=_LE)
     async def verificar_login(ctx: Context[BrowserManager, Any]) -> ResultadoLogin:
         """Faz login no Sólides/Tangerino como colaborador e informa se deu certo. Não altera nada."""
@@ -236,6 +258,8 @@ def create_server(settings: Settings) -> MCPServer[BrowserManager]:
 
 
 def create_app(settings: Settings) -> ASGIApp:
+    if settings.mcp_token is None:
+        raise ValueError("SOLIDES_MCP_TOKEN é obrigatório para o servidor MCP")
     seguranca = None
     if settings.mcp_allowed_hosts:
         seguranca = TransportSecuritySettings(
@@ -246,9 +270,7 @@ def create_app(settings: Settings) -> ASGIApp:
 
 
 def main() -> None:
-    try:
-        settings = Settings()
-    except ValidationError as exc:
-        campos = ", ".join("SOLIDES_" + str(erro["loc"][0]).upper() for erro in exc.errors())
-        sys.exit(f"Configuração inválida ou ausente: {campos}. Veja o .env.example.")
+    settings = carregar()
+    if settings.mcp_token is None:
+        sair_por_configuracao("SOLIDES_MCP_TOKEN")
     uvicorn.run(create_app(settings), host=settings.mcp_host, port=settings.mcp_port)

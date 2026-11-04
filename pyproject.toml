@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 solides-mcp = "solides_mcp.server:main"
+solides = "solides_mcp.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.18,<0.13.0"]
