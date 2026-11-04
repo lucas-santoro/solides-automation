@@ -10,7 +10,7 @@ import logging
 import os
 import random
 from collections.abc import Awaitable, Callable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -61,9 +61,7 @@ def agora() -> datetime:
 
 def config_de(settings: Settings) -> ConfigAgenda:
     return ConfigAgenda(
-        dias=frozenset(settings.agenda_dias),
-        entrada_inicio=settings.agenda_entrada[0],
-        entrada_fim=settings.agenda_entrada[1],
+        janelas=dict(settings.agenda_entrada),
         jornada_min=settings.agenda_jornada[0],
         jornada_max=settings.agenda_jornada[1],
     )
@@ -75,11 +73,13 @@ def _hhmm(duracao: timedelta) -> str:
 
 
 def descrever(cfg: ConfigAgenda) -> str:
-    dias = ", ".join(DIAS_SEMANA[d] for d in sorted(cfg.dias))
-    return (
-        f"{dias} · entrada entre {cfg.entrada_inicio:%H:%M} e {cfg.entrada_fim:%H:%M} · "
-        f"saída de {_hhmm(cfg.jornada_min)} a {_hhmm(cfg.jornada_max)} depois da entrada"
+    grupos: dict[tuple[time, time], list[str]] = {}
+    for dia in sorted(cfg.janelas):
+        grupos.setdefault(cfg.janelas[dia], []).append(DIAS_SEMANA[dia])
+    entradas = "; ".join(
+        f"{', '.join(dias)}: entrada entre {inicio:%H:%M} e {fim:%H:%M}" for (inicio, fim), dias in grupos.items()
     )
+    return f"{entradas} · saída de {_hhmm(cfg.jornada_min)} a {_hhmm(cfg.jornada_max)} depois da entrada"
 
 
 # --- arquivos ---
@@ -275,7 +275,7 @@ def resumo(settings: Settings, momento: datetime | None = None) -> str:
         rotulo = "hoje" if dia == momento.date() else DIAS_SEMANA[dia.weekday()]
         linhas += [f"{dia:%d/%m} ({rotulo})", _linha("entrada", plano.entrada), _linha("saída", plano.saida)]
     proximo = momento.date() + timedelta(days=1)
-    while proximo.weekday() not in cfg.dias:
+    while proximo.weekday() not in cfg.janelas:
         proximo += timedelta(days=1)
     linhas.append(f"Próximo dia agendado: {DIAS_SEMANA[proximo.weekday()]} {proximo:%d/%m} (sorteio no próprio dia)")
     return "\n".join(linhas)

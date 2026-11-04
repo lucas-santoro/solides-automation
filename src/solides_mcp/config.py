@@ -1,4 +1,5 @@
 import sys
+import unicodedata
 from datetime import time, timedelta
 from pathlib import Path
 from typing import Annotated, NoReturn
@@ -29,11 +30,16 @@ class Settings(BaseSettings):
     mcp_port: int = 8000
     mcp_allowed_hosts: Annotated[list[str], NoDecode] = []
 
-    # Agendador (`solides agendador`): dias da semana, janela da entrada e duração entrada→saída.
-    agenda_dias: Annotated[list[int], NoDecode] = [0, 1, 4]
-    """Dias com batida automática (0 = segunda). No .env: SOLIDES_AGENDA_DIAS=seg,ter,sex."""
-    agenda_entrada: Annotated[tuple[time, time], NoDecode] = (time(9, 0), time(9, 55))
-    """Janela do sorteio da entrada. No .env: SOLIDES_AGENDA_ENTRADA=09:00-09:55."""
+    # Agendador (`solides agendador`): janela da entrada por dia da semana e duração entrada→saída.
+    agenda_entrada: Annotated[dict[int, tuple[time, time]], NoDecode] = {
+        0: (time(9, 0), time(9, 55)),
+        1: (time(9, 0), time(9, 55)),
+        2: (time(8, 0), time(8, 30)),
+        3: (time(8, 0), time(8, 30)),
+        4: (time(9, 0), time(9, 55)),
+    }
+    """Janela do sorteio da entrada por dia (0 = segunda); dia fora da lista não bate.
+    No .env: SOLIDES_AGENDA_ENTRADA=seg,ter,sex=09:00-09:55;qua,qui=08:00-08:30."""
     agenda_jornada: Annotated[tuple[timedelta, timedelta], NoDecode] = (
         timedelta(hours=8, minutes=50),
         timedelta(hours=9, minutes=10),
@@ -47,28 +53,26 @@ class Settings(BaseSettings):
             return [host.strip() for host in value.split(",") if host.strip()]
         return value
 
-    @field_validator("agenda_dias", mode="before")
-    @classmethod
-    def _dias(cls, value: object) -> object:
-        if not isinstance(value, str):
-            return value
-        try:
-            dias = sorted({DIAS_SEMANA.index(nome.strip().lower()[:3]) for nome in value.split(",") if nome.strip()})
-        except ValueError:
-            raise ValueError(f"use {','.join(DIAS_SEMANA)}") from None
-        if not dias:
-            raise ValueError("informe ao menos um dia")
-        return dias
-
     @field_validator("agenda_entrada", mode="before")
     @classmethod
-    def _janela_entrada(cls, value: object) -> object:
+    def _janelas_entrada(cls, value: object) -> object:
         if not isinstance(value, str):
             return value
-        inicio, fim = (time.fromisoformat(parte.strip()) for parte in _intervalo(value))
-        if inicio >= fim:
-            raise ValueError("o início precisa ser antes do fim")
-        return inicio, fim
+        janelas: dict[int, tuple[time, time]] = {}
+        for grupo in filter(str.strip, value.split(";")):
+            dias, separador, intervalo = grupo.partition("=")
+            if not separador:
+                raise ValueError("use dias=HH:MM-HH:MM; ex.: seg,ter,sex=09:00-09:55;qua,qui=08:00-08:30")
+            inicio, fim = (time.fromisoformat(parte.strip()) for parte in _intervalo(intervalo))
+            if inicio >= fim:
+                raise ValueError(f"em {grupo.strip()}, o início precisa ser antes do fim")
+            for dia in _dias(dias):
+                if dia in janelas:
+                    raise ValueError(f"{DIAS_SEMANA[dia]} aparece em mais de uma janela")
+                janelas[dia] = (inicio, fim)
+        if not janelas:
+            raise ValueError("informe ao menos um dia")
+        return janelas
 
     @field_validator("agenda_jornada", mode="before")
     @classmethod
@@ -82,6 +86,14 @@ class Settings(BaseSettings):
 
 
 DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
+
+
+def _dias(texto: str) -> list[int]:
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()  # "sáb" -> "sab"
+    try:
+        return [DIAS_SEMANA.index(nome.strip().lower()[:3]) for nome in sem_acento.split(",") if nome.strip()]
+    except ValueError:
+        raise ValueError(f"dias aceitos: {','.join(DIAS_SEMANA)}") from None
 
 
 def _intervalo(valor: str) -> list[str]:

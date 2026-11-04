@@ -10,6 +10,7 @@ configurada; a saída é a entrada real mais uma duração também sorteada. Cad
 """
 
 import random
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Literal
@@ -32,9 +33,8 @@ TERMINAIS = {"ok", "pulada", "perdida", "incerta", "pausada"}
 
 @dataclass(frozen=True)
 class ConfigAgenda:
-    dias: frozenset[int]
-    entrada_inicio: time
-    entrada_fim: time
+    janelas: Mapping[int, tuple[time, time]]
+    """Janela da entrada por dia da semana (0 = segunda); dia fora daqui não é agendado."""
     jornada_min: timedelta
     jornada_max: timedelta
 
@@ -78,9 +78,10 @@ def amanha(agora: datetime) -> datetime:
 
 def planejar(dia: date, agora: datetime, cfg: ConfigAgenda, rng: random.Random) -> PlanoDia | None:
     """Sorteia a entrada e a duração do dia. None se o dia não é agendado ou a janela já passou."""
-    if dia.weekday() not in cfg.dias:
+    janela = cfg.janelas.get(dia.weekday())
+    if janela is None:
         return None
-    inicio, fim = _no_dia(dia, cfg.entrada_inicio), _no_dia(dia, cfg.entrada_fim)
+    inicio, fim = _no_dia(dia, janela[0]), _no_dia(dia, janela[1])
     # Começando no meio da janela (deploy, reinício sem estado), sorteia só no que resta dela.
     inicio = max(inicio, agora + timedelta(seconds=30))
     if inicio >= fim:

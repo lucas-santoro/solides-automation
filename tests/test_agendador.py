@@ -95,7 +95,7 @@ async def test_falha_antes_de_enviar_tenta_de_novo_ate_o_limite(settings: Settin
 
 
 async def test_laco_bate_o_dia_inteiro_com_relogio_simulado(settings_fake: Settings, dia_util: FakeTangerino) -> None:
-    settings_fake.agenda_dias = [HOJE.weekday()]
+    settings_fake.agenda_entrada = {HOJE.weekday(): (time(9, 0), time(9, 55))}
     relogio = [datetime.combine(HOJE, time(8, 0), tzinfo=FUSO)]
 
     async def dormir(segundos: float) -> None:
@@ -122,7 +122,7 @@ async def test_laco_bate_o_dia_inteiro_com_relogio_simulado(settings_fake: Setti
 
 
 async def test_laco_pausado_nao_bate(settings_fake: Settings, dia_util: FakeTangerino) -> None:
-    settings_fake.agenda_dias = [HOJE.weekday()]
+    settings_fake.agenda_entrada = {HOJE.weekday(): (time(9, 0), time(9, 55))}
     Arquivos(settings_fake).pausar(HOJE)
     relogio = [datetime.combine(HOJE, time(8, 0), tzinfo=FUSO)]
 
@@ -154,7 +154,10 @@ def test_cli_pausar_status_retomar(ambiente: Path, capsys: pytest.CaptureFixture
     saida = capsys.readouterr().out
     assert "pausado até 20/11/2026" in saida
     assert "PAUSADO até 20/11" in saida
-    assert "seg, ter, sex · entrada entre 09:00 e 09:55 · saída de 08:50 a 09:10 depois da entrada" in saida
+    assert (
+        "seg, ter, sex: entrada entre 09:00 e 09:55; qua, qui: entrada entre 08:00 e 08:30 · "
+        "saída de 08:50 a 09:10 depois da entrada"
+    ) in saida
 
     assert cli.main(["agendador", "retomar"]) == 0
     assert cli.main(["agendador", "retomar"]) == 0
@@ -166,4 +169,6 @@ def test_cli_pausar_status_retomar(ambiente: Path, capsys: pytest.CaptureFixture
 def test_proximo_dia_no_status(settings: Settings) -> None:
     terca = datetime(2026, 11, 3, 22, 0, tzinfo=FUSO)
 
-    assert "Próximo dia agendado: sex 06/11" in resumo(settings, terca)
+    assert "Próximo dia agendado: qua 04/11" in resumo(settings, terca)
+    sexta = datetime(2026, 11, 6, 22, 0, tzinfo=FUSO)
+    assert "Próximo dia agendado: seg 09/11" in resumo(settings, sexta)

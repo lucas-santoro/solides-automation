@@ -17,15 +17,15 @@ from solides_mcp.agenda import (
 from solides_mcp.config import Settings
 from solides_mcp.models import Dia, Marcacao
 
+NOVE, OITO = (time(9, 0), time(9, 55)), (time(8, 0), time(8, 30))
 CFG = ConfigAgenda(
-    dias=frozenset({0, 1, 4}),
-    entrada_inicio=time(9, 0),
-    entrada_fim=time(9, 55),
+    janelas={0: NOVE, 1: NOVE, 2: OITO, 3: OITO, 4: NOVE},
     jornada_min=timedelta(hours=8, minutes=50),
     jornada_max=timedelta(hours=9, minutes=10),
 )
 SEGUNDA = date(2026, 11, 9)
 QUARTA = date(2026, 11, 11)
+SABADO = date(2026, 11, 14)
 
 
 def _em(dia: date, hora: str) -> datetime:
@@ -57,9 +57,18 @@ def test_sorteio_fica_dentro_das_janelas_e_varia_ate_o_segundo() -> None:
     assert len({d.total_seconds() % 60 for d in duracoes}) > 40
 
 
+def test_cada_dia_usa_a_propria_janela() -> None:
+    rng = random.Random(3)
+    quartas = [planejar(QUARTA, _em(QUARTA, "00:00:05"), CFG, rng).entrada.alvo for _ in range(300)]  # type: ignore[union-attr]
+
+    assert all(_em(QUARTA, "08:00:00") <= alvo < _em(QUARTA, "08:30:00") for alvo in quartas)  # type: ignore[operator]
+    assert len({alvo.minute for alvo in quartas}) == 30  # type: ignore[union-attr]
+
+
 def test_nao_planeja_dia_fora_da_agenda_nem_janela_que_ja_passou() -> None:
-    assert planejar(QUARTA, _em(QUARTA, "00:00:05"), CFG, random.Random(1)) is None
+    assert planejar(SABADO, _em(SABADO, "00:00:05"), CFG, random.Random(1)) is None
     assert planejar(SEGUNDA, _em(SEGUNDA, "09:55:00"), CFG, random.Random(1)) is None
+    assert planejar(QUARTA, _em(QUARTA, "08:30:00"), CFG, random.Random(1)) is None
 
 
 def test_comecando_no_meio_da_janela_sorteia_so_o_que_resta() -> None:
@@ -191,26 +200,30 @@ def test_avaliar_saida_exige_entrada_em_aberto() -> None:
 
 
 def test_config_padrao_e_formatos_do_env(settings: Settings) -> None:
-    assert settings.agenda_dias == [0, 1, 4]
-    assert settings.agenda_entrada == (time(9, 0), time(9, 55))
+    assert settings.agenda_entrada == {0: NOVE, 1: NOVE, 2: OITO, 3: OITO, 4: NOVE}
+    assert settings.agenda_jornada == (timedelta(hours=8, minutes=50), timedelta(hours=9, minutes=10))
 
     ajustada = Settings(
         _env_file=None,
         codigo_empregador="ABC12",
         pin="12345",
-        agenda_dias="Seg, qua,SEXTA",
-        agenda_entrada="08:30-09:00",
+        agenda_entrada="Seg, QUARTA = 08:30-09:00 ; sáb=07:00-07:30",
         agenda_jornada="8:00-8:20",
     )
 
-    assert ajustada.agenda_dias == [0, 2, 4]
-    assert ajustada.agenda_entrada == (time(8, 30), time(9, 0))
+    assert ajustada.agenda_entrada == {0: (time(8, 30), time(9, 0)), 2: (time(8, 30), time(9, 0)), 5: (time(7, 0), time(7, 30))}
     assert ajustada.agenda_jornada == (timedelta(hours=8), timedelta(hours=8, minutes=20))
 
 
 @pytest.mark.parametrize(
     ("campo", "valor"),
-    [("agenda_dias", "segunda,feriado"), ("agenda_entrada", "10:00-09:00"), ("agenda_jornada", "09:00-09:01")],
+    [
+        ("agenda_entrada", "segunda,feriado=09:00-09:55"),
+        ("agenda_entrada", "seg=10:00-09:00"),
+        ("agenda_entrada", "seg=09:00-09:55;seg=08:00-08:30"),
+        ("agenda_entrada", "09:00-09:55"),
+        ("agenda_jornada", "09:00-09:01"),
+    ],
 )
 def test_config_invalida(campo: str, valor: str) -> None:
     with pytest.raises(ValidationError):

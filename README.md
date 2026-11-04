@@ -38,8 +38,9 @@ passou), `1` não registrou, `2` configuração inválida. No container: `docker
 `solides agendador` fica rodando e bate entrada e saída sozinho, pela mesma aba Registrar Ponto. No Docker é o
 serviço `agendador` do `docker-compose.yml` (mesma imagem, processo separado do MCP).
 
-- **Dias**: `SOLIDES_AGENDA_DIAS` (padrão `seg,ter,sex`).
-- **Entrada**: sorteada até o segundo dentro de `SOLIDES_AGENDA_ENTRADA` (padrão `09:00-09:55`), de novo a cada dia.
+- **Dias e entrada**: `SOLIDES_AGENDA_ENTRADA` dá a janela da entrada de cada dia (padrão
+  `seg,ter,sex=09:00-09:55;qua,qui=08:00-08:30`); dia fora da lista não bate. A entrada é sorteada até o segundo
+  dentro da janela do dia, de novo a cada dia.
 - **Saída**: a entrada real mais uma duração sorteada até o segundo em `SOLIDES_AGENDA_JORNADA` (padrão
   `08:50-09:10`). O sorteio para 2 minutos antes do máximo, porque o envio leva alguns segundos.
 
