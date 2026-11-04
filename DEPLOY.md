@@ -12,6 +12,8 @@ variáveis de configuração estão no `.env.example`.
   `completar_dia` / `lancar_pontos` apenas com `dry_run=true`. Com `dry_run=false` a tool cria marcações de
   ponto reais; essa decisão é só do usuário. Atenção: `bater_ponto` registra o ponto **na hora** e o padrão
   dele é `dry_run=false`, então passe `{"dry_run": true}` sempre.
+- **O serviço `agendador` bate ponto de verdade** nos dias e janelas do `.env` (`SOLIDES_AGENDA_*`). Para
+  verificar, use só `solides agendador status`; não force horários nem rode `bater-ponto` sem `--dry-run`.
 - **Uma tentativa de login por verificação.** Se `verificar_login` voltar `ok: false` (credencial errada,
   `CaptchaRequired`), pare e mostre a `mensagem` ao usuário. Repetir login que falha pode ativar o
   reCAPTCHA da conta.
@@ -61,6 +63,8 @@ variáveis de configuração estão no `.env.example`.
    *Pronto quando* a lista tem as 6 tools (`bater_ponto`, `verificar_login`, `listar_marcacoes`,
    `dias_pendentes`, `completar_dia`, `lancar_pontos`), `verificar_login` devolve `"ok": true`,
    `dias_pendentes` devolve JSON e `bater_ponto` com `dry_run` devolve `"ok": true, "dry_run": true`.
+   Agendador: `docker compose logs agendador` mostra `Agendador iniciado: ...` e
+   `docker compose exec agendador solides agendador status` mostra a agenda e o próximo dia.
 
 8. **Verificar de fora** pela URL final da opção escolhida.
    *Pronto quando* `curl -s -o /dev/null -w '%{http_code}' -X POST <URL>/mcp` (sem token) devolve `401`
@@ -103,7 +107,8 @@ na lista ela falha com `MCPError: Server returned an error response`.
 ## Operação
 
 - Atualizar: `git pull && docker compose up -d --build`.
-- Logs: `docker compose logs -f`.
+- Logs: `docker compose logs -f` (só o agendador: `docker compose logs -f agendador`).
+- Agendador: `docker compose exec agendador solides agendador status | pausar [--ate AAAA-MM-DD] | retomar`.
 - Screenshots de erro ficam no volume `artifacts` (contêm dados pessoais):
   `docker compose cp solides-mcp:/app/artifacts ./artifacts`.
 - Trocar o PIN ou a senha OAuth: editar o `.env` e `docker compose up -d`. A troca da senha não revoga

@@ -3,6 +3,8 @@
 Uso:
     solides bater-ponto              # registra o ponto agora
     solides bater-ponto --dry-run    # faz o fluxo todo, mas bloqueia o envio: nada é registrado
+    solides agendador                # bate entrada e saída sozinho nos dias configurados (fica rodando)
+    solides agendador status | pausar [--ate AAAA-MM-DD] | retomar
 
 Lê a mesma configuração do servidor (.env ou variáveis SOLIDES_*); SOLIDES_MCP_TOKEN não é necessário.
 Código de saída: 0 deu certo, 1 o site não registrou (ou deu erro), 2 configuração inválida.
@@ -10,8 +12,12 @@ Código de saída: 0 deu certo, 1 o site não registrou (ou deu erro), 2 configu
 
 import argparse
 import asyncio
+import logging
 import sys
+from datetime import date, datetime
 
+from solides_mcp import agendador
+from solides_mcp.agenda import FUSO
 from solides_mcp.browser import BrowserManager
 from solides_mcp.config import Settings, carregar
 from solides_mcp.models import ResultadoPonto
@@ -34,6 +40,17 @@ def _parser() -> argparse.ArgumentParser:
     bater.add_argument(
         "--dry-run", action="store_true", help="faz o fluxo todo, mas bloqueia o envio: nada é registrado"
     )
+
+    agenda = comandos.add_parser(
+        "agendador",
+        help="bate entrada e saída sozinho nos dias configurados (SOLIDES_AGENDA_*)",
+        description=(
+            "Sem argumento, roda o agendador (fica rodando). 'status' mostra o plano de hoje e dos últimos dias; "
+            "'pausar' suspende as batidas (até retomar ou até --ate); 'retomar' tira a pausa."
+        ),
+    )
+    agenda.add_argument("acao", nargs="?", default="rodar", choices=["rodar", "status", "pausar", "retomar"])
+    agenda.add_argument("--ate", type=date.fromisoformat, metavar="AAAA-MM-DD", help="último dia da pausa")
     return parser
 
 
@@ -54,6 +71,32 @@ def _imprimir(resultado: ResultadoPonto, como_json: bool) -> None:
         print(f"Screenshot: {resultado.screenshot}", file=saida)
 
 
+def _agendador(settings: Settings, acao: str, ate: date | None) -> int:
+    arquivos = agendador.Arquivos(settings)
+    if acao == "status":
+        print(agendador.resumo(settings))
+    elif acao == "pausar":
+        arquivos.pausar(ate)
+        print(f"Agendador pausado {'até ' + ate.strftime('%d/%m/%Y') if ate else 'até você retomar'}.")
+    elif acao == "retomar":
+        print("Pausa removida." if arquivos.retomar() else "O agendador não estava pausado.")
+    else:
+        _configurar_log()
+        try:
+            asyncio.run(agendador.rodar(settings))
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
+def _configurar_log() -> None:
+    formato = logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%d/%m %H:%M:%S")
+    formato.converter = lambda *_: datetime.now(FUSO).timetuple()
+    saida = logging.StreamHandler(sys.stdout)
+    saida.setFormatter(formato)
+    logging.basicConfig(level=logging.INFO, handlers=[saida], force=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -61,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         print(exc.code, file=sys.stderr)
         return 2
+    if args.comando == "agendador":
+        return _agendador(settings, args.acao, args.ate)
     if args.mostrar_navegador:
         settings.headless = False
 

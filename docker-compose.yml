@@ -16,5 +16,20 @@ services:
     init: true
     restart: unless-stopped
 
+  agendador:
+    # Mesma imagem, outro processo: bate entrada e saída nos dias configurados (SOLIDES_AGENDA_* no .env).
+    # Comandos: docker compose exec agendador solides agendador status | pausar [--ate AAAA-MM-DD] | retomar
+    build: .
+    command: ["solides", "agendador"]
+    env_file: .env
+    environment:
+      SOLIDES_HEADLESS: "true"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - artifacts:/app/artifacts
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+
 volumes:
   artifacts:

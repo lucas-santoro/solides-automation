@@ -70,6 +70,8 @@ class EstadoFake:
     status_registro: int = 200
     registros: list[dict] = field(default_factory=list)
     """Corpo (JSON) de cada POST em sincronizacaoPontos, inclusive os que o falso recusou."""
+    hoje: date | None = None
+    """Se definido, cada registro aceito vira uma marcação (hora atual, HH:MM) nesse dia do espelho."""
 
 
 def _dia_json(data: date, dia: DiaFake, horas: list[str]) -> dict:
@@ -124,6 +126,10 @@ class FakeTangerino:
         self.estado.registros.append(await request.json())
         if self.estado.status_registro != 200:
             return Response("erro interno", status_code=self.estado.status_registro)
+        hoje = self.estado.hoje
+        if hoje in self.estado.dias and self.estado.resposta_registro.get("sucesso"):
+            dia = self.estado.dias[hoje]
+            dia.horas = sorted([*dia.horas, datetime.now().strftime("%H:%M")])
         return JSONResponse(self.estado.resposta_registro)
 
     async def log(self, request: Request) -> Response:

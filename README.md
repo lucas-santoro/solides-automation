@@ -33,6 +33,37 @@ uv run solides bater-ponto --json       # resultado completo em JSON
 Opções: `--mostrar-navegador` (abre o Chromium com janela). Código de saída: `0` registrou (ou a simulação
 passou), `1` não registrou, `2` configuração inválida. No container: `docker compose exec solides-mcp solides bater-ponto`.
 
+## Agendador
+
+`solides agendador` fica rodando e bate entrada e saída sozinho, pela mesma aba Registrar Ponto. No Docker é o
+serviço `agendador` do `docker-compose.yml` (mesma imagem, processo separado do MCP).
+
+- **Dias**: `SOLIDES_AGENDA_DIAS` (padrão `seg,ter,sex`).
+- **Entrada**: sorteada até o segundo dentro de `SOLIDES_AGENDA_ENTRADA` (padrão `09:00-09:55`), de novo a cada dia.
+- **Saída**: a entrada real mais uma duração sorteada até o segundo em `SOLIDES_AGENDA_JORNADA` (padrão
+  `08:50-09:10`). O sorteio para 2 minutos antes do máximo, porque o envio leva alguns segundos.
+
+Antes de cada batida, o agendador faz login e lê o espelho de hoje:
+
+- a **entrada** só bate se o dia tem jornada prevista, nenhuma marcação e nenhum marcador além de `FALTA`
+  (fim de semana, feriado, férias e folga ficam de fora). Se você já bateu a entrada à mão, ele não bate de novo
+  e calcula a saída a partir da sua batida;
+- a **saída** só bate se houver uma entrada em aberto (número ímpar de marcações).
+
+Se a consulta ou o registro falhar **antes** de enviar, tenta de novo a cada 5 minutos (até 3 vezes, dentro da
+janela). Se o pedido **saiu** e a resposta falhou, a etapa fica `incerta` e nunca é repetida: confira o espelho.
+Fora da janela (container parado, por exemplo), a etapa fica `perdida`: nada é batido atrasado.
+O plano e o resultado de cada dia ficam em `artifacts/agendador.json`; o log vai para `docker compose logs agendador`.
+
+```bash
+docker compose exec agendador solides agendador status                    # plano de hoje e dos últimos dias
+docker compose exec agendador solides agendador pausar --ate 2026-11-20  # férias, atestado (sem --ate: até retomar)
+docker compose exec agendador solides agendador retomar
+```
+
+A pausa vale a partir da próxima verificação (no máximo 5 minutos) e encerra como `pausada` o que faltava no dia;
+`retomar` não reativa as etapas já pausadas.
+
 Testes (offline, com réplicas das telas em `tests/fixtures/`):
 
 ```bash
